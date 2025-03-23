@@ -116,6 +116,13 @@ def get_excel_download_link(df, filename="data.xlsx"):
     b64 = base64.b64encode(excel_data).decode()
     return f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">Excelファイルをダウンロード</a>'
 
+def get_csv_download_link(df, filename="data.csv"):
+    """CSVファイルのダウンロードリンクを生成"""
+    csv = df.to_csv(index=False)
+    csv_bytes = csv.encode('utf-8-sig')
+    b64 = base64.b64encode(csv_bytes).decode()
+    return f'<a href="data:text/csv;charset=utf-8,%EF%BB%BF{b64}" download="{filename}">CSVファイルをダウンロード</a>'
+
 def get_json_download_link(data, filename="data.json"):
     """JSONファイルのダウンロードリンクを生成"""
     json_str = json.dumps(data, ensure_ascii=False, indent=2)
@@ -227,6 +234,10 @@ def main():
                     # Excelファイルのダウンロードリンク
                     excel_link = get_excel_download_link(seller_df, f"{selected_seller}_products.xlsx")
                     st.markdown(excel_link, unsafe_allow_html=True)
+                    
+                    # CSVファイルのダウンロードリンク
+                    csv_link = get_csv_download_link(seller_df, f"{selected_seller}_products.csv")
+                    st.markdown(csv_link, unsafe_allow_html=True)
                     
                     # 分析結果のJSONダウンロードリンク
                     analysis_results = {
