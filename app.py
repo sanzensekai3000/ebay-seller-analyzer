@@ -16,6 +16,13 @@ import hmac
 # セキュリティ機能
 def check_password():
     """パスワード認証を行う"""
+    # 直接ハードコードされたパスワード
+    users = {
+        "admin": "ebay2024",  # 管理者用
+        "user1": "password1",  # 追加ユーザー
+        "ebay2024": "password1"  # 追加の組み合わせ
+    }
+    
     # セッション状態を確認
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
@@ -29,29 +36,12 @@ def check_password():
     password = st.sidebar.text_input("パスワード", type="password")
     
     if st.sidebar.button("ログイン"):
-        # シークレットから認証情報を取得
-        try:
-            # .streamlit/secrets.tomlからパスワードを読み込む
-            correct_password = st.secrets["passwords"].get(username)
-            if correct_password and correct_password == password:
-                st.session_state.authenticated = True
-                return True
-            else:
-                st.sidebar.error("ユーザー名またはパスワードが違います")
-                return False
-        except Exception as e:
-            # シークレットが見つからない場合はハードコードされたパスワードを使用（開発用）
-            # 本番環境ではこのコードは削除してください
-            fallback_users = {
-                "admin": "ebay2024", 
-                "user1": "password1"
-            }
-            if username in fallback_users and fallback_users[username] == password:
-                st.session_state.authenticated = True
-                return True
-            else:
-                st.sidebar.error("ユーザー名またはパスワードが違います")
-                return False
+        if username in users and users[username] == password:
+            st.session_state.authenticated = True
+            return True
+        else:
+            st.sidebar.error("ユーザー名またはパスワードが違います")
+            return False
     return False
 
 # Streamlit設定（シンプルな設定）
