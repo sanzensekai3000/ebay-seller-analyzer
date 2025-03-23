@@ -81,8 +81,20 @@ def analyze_seller(df, seller_name):
         'フィードバック': seller_df['フィードバック'].iloc[0] if 'フィードバック' in seller_df.columns else 'N/A'
     }
     
-    # カテゴリー分析
-    category_counts = seller_df['カテゴリー'].value_counts()
+    # カテゴリー分析（CSVファイルの列名に合わせて調整）
+    category_column = None
+    if 'カテゴリー' in seller_df.columns:
+        category_column = 'カテゴリー'
+    elif 'カテゴリ' in seller_df.columns:
+        category_column = 'カテゴリ'
+    elif 'Category' in seller_df.columns:
+        category_column = 'Category'
+    
+    if category_column:
+        category_counts = seller_df[category_column].value_counts()
+    else:
+        # カテゴリー列がない場合はダミーデータを作成
+        category_counts = pd.Series({'その他': len(seller_df)})
     
     # 価格帯分析
     price_ranges = [0, 10, 20, 30, 40, 50, 75, 100, float('inf')]
@@ -195,11 +207,18 @@ def main():
                         st.dataframe(price_analysis)
                 
                 with tab3:
-                    # 商品リスト
-                    st.dataframe(
-                        seller_df[['商品名', '価格', 'カテゴリー', 'URL', '出品日時']]
-                        .sort_values('価格', ascending=False)
-                    )
+                    # 商品リスト（表示する列を動的に判断）
+                    display_columns = []
+                    for col in ['商品名', '価格', 'カテゴリー', 'カテゴリ', 'Category', 'URL', '出品日時']:
+                        if col in seller_df.columns:
+                            display_columns.append(col)
+                    
+                    if display_columns:
+                        st.dataframe(
+                            seller_df[display_columns].sort_values('価格', ascending=False)
+                        )
+                    else:
+                        st.write("表示できる列がありません")
                 
                 with tab4:
                     # データの保存（クラウド対応版）
