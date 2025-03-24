@@ -148,10 +148,12 @@ def get_excel_download_link(df, filename="data.xlsx"):
 
 def get_csv_download_link(df, filename="data.csv"):
     """CSVファイルのダウンロードリンクを生成"""
-    csv = df.to_csv(index=False)
-    csv_bytes = csv.encode('utf-8-sig')
+    # BOMなしのUTF-8でCSVを出力
+    csv = df.to_csv(index=False, encoding='utf-8')
+    csv_bytes = csv.encode('utf-8')
     b64 = base64.b64encode(csv_bytes).decode()
-    return f'<a href="data:text/csv;charset=utf-8,%EF%BB%BF{b64}" download="{filename}">CSVファイルをダウンロード</a>'
+    mime_type = "text/csv;charset=utf-8"
+    return f'<a href="data:{mime_type};base64,{b64}" download="{filename}">CSVファイルをダウンロード</a>'
 
 def get_json_download_link(data, filename="data.json"):
     """JSONファイルのダウンロードリンクを生成"""
@@ -288,17 +290,30 @@ def main():
                     
                     with col1:
                         st.write("### 商品データ")
-                        # Excelファイルのダウンロードリンク
-                        excel_link = get_excel_download_link(seller_df, f"{selected_seller}_products.xlsx")
-                        st.markdown(excel_link, unsafe_allow_html=True)
+                        # Excelファイルのダウンロード
+                        buffer = io.BytesIO()
+                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                            seller_df.to_excel(writer, index=False)
                         
-                        # CSVファイルのダウンロードリンク
-                        csv_link = get_csv_download_link(seller_df, f"{selected_seller}_products.csv")
-                        st.markdown(csv_link, unsafe_allow_html=True)
+                        st.download_button(
+                            label="Excelファイルをダウンロード",
+                            data=buffer.getvalue(),
+                            file_name=f"{selected_seller}_products.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                        
+                        # CSVファイルのダウンロード
+                        csv = seller_df.to_csv(index=False, encoding='utf-8')
+                        st.download_button(
+                            label="CSVファイルをダウンロード",
+                            data=csv.encode('utf-8'),
+                            file_name=f"{selected_seller}_products.csv",
+                            mime="text/csv"
+                        )
                     
                     with col2:
                         st.write("### 分析データ")
-                        # 分析結果のJSONダウンロードリンク
+                        # 分析結果のJSONダウンロード
                         analysis_results = {
                             'basic_stats': stats,
                             'category_analysis': {str(k): float(v) for k, v in category_counts.items()},
@@ -306,8 +321,13 @@ def main():
                             'timestamp': datetime.now().isoformat()
                         }
                         
-                        json_link = get_json_download_link(analysis_results, f"{selected_seller}_analysis.json")
-                        st.markdown(json_link, unsafe_allow_html=True)
+                        json_str = json.dumps(analysis_results, ensure_ascii=False, indent=2)
+                        st.download_button(
+                            label="JSON分析結果をダウンロード",
+                            data=json_str.encode('utf-8'),
+                            file_name=f"{selected_seller}_analysis.json",
+                            mime="application/json"
+                        )
                 
                 with tab5:
                     # Amazon連携機能
@@ -369,13 +389,14 @@ def main():
                             amazon_research_df = amazon_df[columns_to_select].copy()
                             amazon_research_df.columns = amazon_columns
                             
-                            # ダウンロードリンクを生成
-                            amazon_csv_link = get_csv_download_link(
-                                amazon_research_df, 
-                                f"{selected_seller}_for_amazon_research.csv"
+                            # 直接ダウンロードできるボタンを追加
+                            csv = amazon_research_df.to_csv(index=False, encoding='utf-8')
+                            st.download_button(
+                                label="Amazon研究用CSVをダウンロード",
+                                data=csv.encode('utf-8'),
+                                file_name=f"{selected_seller}_for_amazon_research.csv",
+                                mime="text/csv"
                             )
-                            st.markdown("### Amazon研究用データ")
-                            st.markdown(amazon_csv_link, unsafe_allow_html=True)
                             
                             # データプレビュー
                             st.write("データプレビュー:")
@@ -384,7 +405,7 @@ def main():
                             # 使い方の説明
                             st.info("""
                             **使用方法**:
-                            1. 上記のCSVファイルをダウンロードします
+                            1. 上記のボタンでCSVファイルをダウンロードします
                             2. 4_amazon_researchアプリを起動します
                             3. インポート機能からこのCSVをロードします
                             4. Amazonで商品を検索し、eBayの価格と比較します
