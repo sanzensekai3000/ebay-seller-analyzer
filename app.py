@@ -55,9 +55,37 @@ def load_and_analyze_data(uploaded_file):
     """アップロードされたCSVファイルを分析"""
     try:
         # CSVファイルの読み込み
-        df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
-        df['出品日時'] = pd.to_datetime(df['出品日時'])
-        df['価格'] = pd.to_numeric(df['価格'], errors='coerce')
+        try:
+            # ヘッダーありの場合
+            df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
+        except:
+            # ヘッダーなしの場合、ファイルを巻き戻してから再読み込み
+            uploaded_file.seek(0)
+            # 典型的なカラム名を定義
+            columns = ['商品名', '価格', '価格（円）', '配送情報', '状態', '所在国', '出品者', '追加情報', '出品日時']
+            df = pd.read_csv(uploaded_file, encoding='utf-8-sig', header=None, names=columns)
+        
+        # データの前処理
+        if '出品日時' in df.columns:
+            df['出品日時'] = pd.to_datetime(df['出品日時'], errors='coerce')
+        
+        # 価格が複数列ある場合の対応
+        if '価格' in df.columns:
+            df['価格'] = pd.to_numeric(df['価格'], errors='coerce')
+        elif '価格（円）' in df.columns:
+            df['価格'] = pd.to_numeric(df['価格（円）'], errors='coerce')
+        
+        # 出品者情報の確認
+        if '出品者' not in df.columns:
+            st.warning("「出品者」列が見つかりません。データ形式を確認してください。")
+            possible_seller_columns = []
+            for col in df.columns:
+                if any(keyword in col.lower() for keyword in ['seller', '出品者', 'セラー']):
+                    possible_seller_columns.append(col)
+            
+            if possible_seller_columns:
+                seller_col = st.selectbox("出品者情報の列を選択してください:", possible_seller_columns)
+                df['出品者'] = df[seller_col]
         
         # 出品者リストの取得
         sellers = df['出品者'].value_counts()
@@ -89,8 +117,10 @@ def analyze_seller(df, seller_name):
         category_column = 'カテゴリ'
     elif 'Category' in seller_df.columns:
         category_column = 'Category'
+    elif '状態' in seller_df.columns:  # 状態情報をカテゴリとして使用
+        category_column = '状態'
     
-    if category_column:
+    if category_column and not seller_df[category_column].isna().all():
         category_counts = seller_df[category_column].value_counts()
     else:
         # カテゴリー列がない場合はダミーデータを作成
@@ -152,6 +182,10 @@ def main():
         if df is not None:
             st.success(f"✅ {len(df)}件のデータを読み込みました")
             
+            # データプレビュー
+            with st.expander("データプレビュー（最初の5行）"):
+                st.dataframe(df.head())
+            
             # サイドバーに出品者選択を表示
             st.sidebar.header("出品者を選択")
             
@@ -173,7 +207,7 @@ def main():
                 seller_df, stats, category_counts, price_dist = analyze_seller(df, selected_seller)
                 
                 # タブで結果を表示
-                tab1, tab2, tab3, tab4 = st.tabs(["📊 基本情報", "💰 価格分析", "📦 商品リスト", "💾 データ保存"])
+                tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 基本情報", "💰 価格分析", "📦 商品リスト", "💾 データ保存", "🔄 Amazon連携"])
                 
                 with tab1:
                     # 基本情報の表示
@@ -203,7 +237,8 @@ def main():
                         fig = px.histogram(
                             seller_df,
                             x='価格',
-                            title="価格分布"
+                            title="価格分布",
+                            nbins=20
                         )
                         st.plotly_chart(fig)
                     
@@ -212,18 +247,36 @@ def main():
                         price_analysis = price_dist.value_counts().sort_index()
                         st.write("価格帯別商品数")
                         st.dataframe(price_analysis)
+                        
+                        # 箱ひげ図による価格の分布
+                        fig = px.box(
+                            seller_df,
+                            y='価格',
+                            title="価格の分布"
+                        )
+                        st.plotly_chart(fig)
                 
                 with tab3:
                     # 商品リスト（表示する列を動的に判断）
                     display_columns = []
-                    for col in ['商品名', '価格', 'カテゴリー', 'カテゴリ', 'Category', 'URL', '出品日時']:
+                    for col in ['商品名', '価格', '価格（円）', 'カテゴリー', 'カテゴリ', 'Category', '状態', 'URL', '出品日時', '配送情報', '所在国']:
                         if col in seller_df.columns:
                             display_columns.append(col)
                     
                     if display_columns:
+                        # 検索フィルター
+                        search_term = st.text_input("商品名で検索:")
+                        
+                        filtered_df = seller_df
+                        if search_term:
+                            filtered_df = seller_df[seller_df['商品名'].str.contains(search_term, case=False, na=False)]
+                        
                         st.dataframe(
-                            seller_df[display_columns].sort_values('価格', ascending=False)
+                            filtered_df[display_columns].sort_values('価格', ascending=False)
                         )
+                        
+                        # 件数表示
+                        st.info(f"表示中: {len(filtered_df)} / {len(seller_df)} 件")
                     else:
                         st.write("表示できる列がありません")
                 
@@ -231,23 +284,113 @@ def main():
                     # データの保存（クラウド対応版）
                     st.subheader("分析結果をダウンロード")
                     
-                    # Excelファイルのダウンロードリンク
-                    excel_link = get_excel_download_link(seller_df, f"{selected_seller}_products.xlsx")
-                    st.markdown(excel_link, unsafe_allow_html=True)
+                    col1, col2 = st.columns(2)
                     
-                    # CSVファイルのダウンロードリンク
-                    csv_link = get_csv_download_link(seller_df, f"{selected_seller}_products.csv")
-                    st.markdown(csv_link, unsafe_allow_html=True)
+                    with col1:
+                        st.write("### 商品データ")
+                        # Excelファイルのダウンロードリンク
+                        excel_link = get_excel_download_link(seller_df, f"{selected_seller}_products.xlsx")
+                        st.markdown(excel_link, unsafe_allow_html=True)
+                        
+                        # CSVファイルのダウンロードリンク
+                        csv_link = get_csv_download_link(seller_df, f"{selected_seller}_products.csv")
+                        st.markdown(csv_link, unsafe_allow_html=True)
                     
-                    # 分析結果のJSONダウンロードリンク
-                    analysis_results = {
-                        'basic_stats': stats,
-                        'category_analysis': {str(k): float(v) for k, v in category_counts.items()},
-                        'timestamp': datetime.now().isoformat()
-                    }
+                    with col2:
+                        st.write("### 分析データ")
+                        # 分析結果のJSONダウンロードリンク
+                        analysis_results = {
+                            'basic_stats': stats,
+                            'category_analysis': {str(k): float(v) for k, v in category_counts.items()},
+                            'price_distribution': {str(k): int(v) for k, v in price_dist.value_counts().items()},
+                            'timestamp': datetime.now().isoformat()
+                        }
+                        
+                        json_link = get_json_download_link(analysis_results, f"{selected_seller}_analysis.json")
+                        st.markdown(json_link, unsafe_allow_html=True)
+                
+                with tab5:
+                    # Amazon連携機能
+                    st.subheader("Amazon研究との連携")
                     
-                    json_link = get_json_download_link(analysis_results, f"{selected_seller}_analysis.json")
-                    st.markdown(json_link, unsafe_allow_html=True)
+                    st.write("""
+                    このセクションでは、eBayの商品データをAmazon研究ツールで活用するための準備ができます。
+                    商品リストをダウンロードして、4_amazon_researchアプリケーションにインポートしてください。
+                    """)
+                    
+                    # カスタムCSV形式のダウンロード（Amazon研究用）
+                    if '商品名' in seller_df.columns and '価格' in seller_df.columns:
+                        # Amazon研究用にデータを整形
+                        amazon_df = seller_df.copy()
+                        
+                        # 必要な列を選択・名前変更
+                        columns_to_select = []
+                        amazon_columns = []
+                        
+                        # 商品名
+                        if '商品名' in amazon_df.columns:
+                            columns_to_select.append('商品名')
+                            amazon_columns.append('product_name')
+                        
+                        # 価格
+                        if '価格' in amazon_df.columns:
+                            columns_to_select.append('価格')
+                            amazon_columns.append('ebay_price')
+                        
+                        # カテゴリー
+                        category_col = None
+                        if 'カテゴリー' in amazon_df.columns:
+                            category_col = 'カテゴリー'
+                        elif 'カテゴリ' in amazon_df.columns:
+                            category_col = 'カテゴリ'
+                        elif 'Category' in amazon_df.columns:
+                            category_col = 'Category'
+                            
+                        if category_col:
+                            columns_to_select.append(category_col)
+                            amazon_columns.append('category')
+                        
+                        # URL
+                        if 'URL' in amazon_df.columns:
+                            columns_to_select.append('URL')
+                            amazon_columns.append('ebay_url')
+                        
+                        # その他の有用な情報
+                        if '出品日時' in amazon_df.columns:
+                            columns_to_select.append('出品日時')
+                            amazon_columns.append('listing_date')
+                        
+                        if '状態' in amazon_df.columns:
+                            columns_to_select.append('状態')
+                            amazon_columns.append('condition')
+                        
+                        # 選択した列だけを抽出
+                        if columns_to_select:
+                            amazon_research_df = amazon_df[columns_to_select].copy()
+                            amazon_research_df.columns = amazon_columns
+                            
+                            # ダウンロードリンクを生成
+                            amazon_csv_link = get_csv_download_link(
+                                amazon_research_df, 
+                                f"{selected_seller}_for_amazon_research.csv"
+                            )
+                            st.markdown("### Amazon研究用データ")
+                            st.markdown(amazon_csv_link, unsafe_allow_html=True)
+                            
+                            # データプレビュー
+                            st.write("データプレビュー:")
+                            st.dataframe(amazon_research_df.head())
+                            
+                            # 使い方の説明
+                            st.info("""
+                            **使用方法**:
+                            1. 上記のCSVファイルをダウンロードします
+                            2. 4_amazon_researchアプリを起動します
+                            3. インポート機能からこのCSVをロードします
+                            4. Amazonで商品を検索し、eBayの価格と比較します
+                            """)
+                    else:
+                        st.warning("Amazon研究との連携に必要なデータ（商品名、価格など）が不足しています。")
 
 if __name__ == "__main__":
     main()
