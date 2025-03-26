@@ -1,6 +1,6 @@
-streamlit>=1.20.0
-pandas>=1.5.0
-plotly>=5.13.0
-openpyxl>=3.1.0
-numpy>=1.24.0
-chardet
+streamlit==1.31.0
+pandas==2.1.4
+plotly==5.18.0
+openpyxl==3.1.2
+numpy==1.26.3
+chardet==5.2.0
