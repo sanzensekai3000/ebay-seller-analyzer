@@ -75,10 +75,25 @@ def load_and_analyze_data(uploaded_file):
                 continue
             try:
                 uploaded_file.seek(0)
+                # 最初に数行を読んでヘッダーを確認
+                header_check = pd.read_csv(
+                    uploaded_file,
+                    encoding=enc,
+                    nrows=5,
+                    on_bad_lines='skip',
+                    dtype=str  # 全ての列を文字列として読み込む
+                )
+                
+                # ヘッダーの内容を確認
+                st.write(f"エンコーディング {enc} でのヘッダー:", header_check.columns.tolist())
+                
+                uploaded_file.seek(0)
+                # ヘッダーが正しく読み込めた場合、全データを読み込む
                 df = pd.read_csv(
                     uploaded_file,
                     encoding=enc,
-                    on_bad_lines='skip'
+                    on_bad_lines='skip',
+                    dtype=str  # 全ての列を文字列として読み込む
                 )
                 st.success(f"✅ エンコーディング {enc} で読み込み成功")
                 break
@@ -139,13 +154,19 @@ def load_and_analyze_data(uploaded_file):
             # 価格データのクリーニング
             try:
                 # 文字列に変換
-                df['価格'] = df['価格'].astype(str)
+                df['価格'] = df['価格'].fillna('').astype(str)
                 # 数値以外の文字を削除
                 df['価格'] = df['価格'].str.replace(r'[^\d.]', '', regex=True)
                 # 空文字列を NaN に変換
                 df['価格'] = df['価格'].replace('', pd.NA)
                 # 数値に変換
                 df['価格'] = pd.to_numeric(df['価格'], errors='coerce')
+                
+                # デバッグ情報
+                st.write("価格データの型:", df['価格'].dtype)
+                st.write("価格データの例:", df['価格'].head())
+                st.write("欠損値の数:", df['価格'].isna().sum())
+                
             except Exception as e:
                 st.warning(f"価格の変換中にエラーが発生しました: {str(e)}")
                 st.write("価格データの例:", df['価格'].head())
@@ -206,6 +227,7 @@ def analyze_seller(df, seller_name):
                               labels=price_labels)
     
     return seller_df, stats, category_counts, price_distribution
+
 def prepare_download_data(df):
     """ダウンロード用にデータを準備"""
     # 日本語を含むデータを適切に処理
@@ -303,15 +325,22 @@ def main():
                     if display_columns:
                         search_term = st.text_input("商品名で検索:")
                         
-                        filtered_df = seller_df
+                        filtered_df = seller_df.copy()
                         if search_term:
-                            filtered_df = seller_df[seller_df['商品名'].str.contains(search_term, case=False, na=False)]
+                            # NaN値を考慮した検索処理
+                            mask = filtered_df['商品名'].fillna('').astype(str).str.contains(search_term, case=False, na=False)
+                            filtered_df = filtered_df[mask]
                         
-                        st.dataframe(
-                            filtered_df[display_columns].sort_values('価格', ascending=False)
-                        )
-                        
-                        st.info(f"表示中: {len(filtered_df)} / {len(seller_df)} 件")
+                        try:
+                            st.dataframe(
+                                filtered_df[display_columns].sort_values('価格', ascending=False)
+                            )
+                            
+                            st.info(f"表示中: {len(filtered_df)} / {len(seller_df)} 件")
+                        except Exception as e:
+                            st.error(f"データの表示中にエラーが発生しました: {str(e)}")
+                            st.write("データの型:", filtered_df[display_columns].dtypes)
+                            st.write("データのプレビュー:", filtered_df[display_columns].head())
                     else:
                         st.write("表示できる列がありません")
                 
