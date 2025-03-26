@@ -75,6 +75,11 @@ def load_and_analyze_data(uploaded_file):
                 continue
             try:
                 uploaded_file.seek(0)
+                # 最初に数行を読んでヘッダーを確認
+                header_check = pd.read_csv(uploaded_file, encoding=enc, nrows=5)
+                uploaded_file.seek(0)
+                
+                # ヘッダーが正しく読み込めた場合、全データを読み込む
                 df = pd.read_csv(
                     uploaded_file,
                     encoding=enc,
@@ -98,25 +103,25 @@ def load_and_analyze_data(uploaded_file):
         for col in df.columns:
             col_str = str(col).lower()
             # 商品名関連
-            if any(keyword in col_str for keyword in ['商品', 'product', 'item', 'title']):
+            if any(keyword in col_str for keyword in ['商品', 'product', 'item', 'title', 'name']):
                 normalized_columns[col] = '商品名'
             # 価格関連
-            elif any(keyword in col_str for keyword in ['価格', 'price', 'cost']):
+            elif any(keyword in col_str for keyword in ['価格', 'price', 'cost', '円']):
                 normalized_columns[col] = '価格'
             # 出品者関連
-            elif any(keyword in col_str for keyword in ['出品者', 'seller', 'store']):
+            elif any(keyword in col_str for keyword in ['出品者', 'seller', 'store', 'shop']):
                 normalized_columns[col] = '出品者'
             # 状態関連
-            elif any(keyword in col_str for keyword in ['状態', 'condition', 'status']):
+            elif any(keyword in col_str for keyword in ['状態', 'condition', 'status', 'state']):
                 normalized_columns[col] = '状態'
             # 出品日時関連
-            elif any(keyword in col_str for keyword in ['出品日', 'date', 'time', '日時']):
+            elif any(keyword in col_str for keyword in ['出品日', 'date', 'time', '日時', '登録']):
                 normalized_columns[col] = '出品日時'
             # URL関連
             elif any(keyword in col_str for keyword in ['url', 'link', 'href']):
                 normalized_columns[col] = 'URL'
             # カテゴリー関連
-            elif any(keyword in col_str for keyword in ['カテゴリ', 'category', 'type']):
+            elif any(keyword in col_str for keyword in ['カテゴリ', 'category', 'type', '分類']):
                 normalized_columns[col] = 'カテゴリー'
         
         # カラム名を変更
@@ -130,7 +135,9 @@ def load_and_analyze_data(uploaded_file):
         if '価格' in df.columns:
             # 価格データのクリーニング
             df['価格'] = df['価格'].astype(str)
-            df['価格'] = df['価格'].str.extract(r'(\d+\.?\d*)', expand=False)
+            # 数値以外の文字を削除（$や,など）
+            df['価格'] = df['価格'].str.replace(r'[^\d.]', '', regex=True)
+            # 数値に変換
             df['価格'] = pd.to_numeric(df['価格'], errors='coerce')
         
         # 出品者リストの取得
@@ -141,6 +148,11 @@ def load_and_analyze_data(uploaded_file):
             st.warning("⚠️ 出品者列が見つかりません")
             st.write("利用可能な列:", df.columns.tolist())
             sellers = pd.Series()
+        
+        # 欠損値の確認
+        missing_data = df.isnull().sum()
+        if missing_data.any():
+            st.write("欠損値の状況:", missing_data[missing_data > 0])
         
         return df, sellers
     
