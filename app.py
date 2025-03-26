@@ -65,11 +65,14 @@ def load_and_analyze_data(uploaded_file):
         encoding = detect_encoding(file_content)
         st.write("検出されたエンコーディング:", encoding)
         
-        # 検出したエンコーディングでCSVを読み込む
+        # 複数のエンコーディングを試す
         encodings_to_try = ['utf-8-sig', 'cp932', 'shift-jis', encoding]
         df = None
+        error_messages = []
         
         for enc in encodings_to_try:
+            if enc is None:
+                continue
             try:
                 uploaded_file.seek(0)
                 df = pd.read_csv(
@@ -77,64 +80,65 @@ def load_and_analyze_data(uploaded_file):
                     encoding=enc,
                     on_bad_lines='skip'
                 )
-                st.write(f"成功したエンコーディング: {enc}")
+                st.success(f"✅ エンコーディング {enc} で読み込み成功")
                 break
             except Exception as e:
+                error_messages.append(f"エンコーディング {enc} での読み込み失敗: {str(e)}")
                 continue
         
         if df is None:
-            raise Exception("すべてのエンコーディングで読み込みに失敗しました")
+            raise Exception("\n".join(error_messages))
         
-        # データフレームの基本情報を表示
-        st.write("読み込んだデータの形状:", df.shape)
-        st.write("元のカラム:", df.columns.tolist())
+        # データの基本情報を表示
+        st.write("データフレームの形状:", df.shape)
+        st.write("読み込んだ列:", df.columns.tolist())
         
         # カラム名の正規化
         normalized_columns = {}
         for col in df.columns:
             col_str = str(col).lower()
             # 商品名関連
-            if any(keyword in col_str for keyword in ['商品', 'product', 'item']):
+            if any(keyword in col_str for keyword in ['商品', 'product', 'item', 'title']):
                 normalized_columns[col] = '商品名'
             # 価格関連
-            elif any(keyword in col_str for keyword in ['価格', 'price']):
+            elif any(keyword in col_str for keyword in ['価格', 'price', 'cost']):
                 normalized_columns[col] = '価格'
             # 出品者関連
-            elif any(keyword in col_str for keyword in ['出品者', 'seller']):
+            elif any(keyword in col_str for keyword in ['出品者', 'seller', 'store']):
                 normalized_columns[col] = '出品者'
             # 状態関連
-            elif any(keyword in col_str for keyword in ['状態', 'condition']):
+            elif any(keyword in col_str for keyword in ['状態', 'condition', 'status']):
                 normalized_columns[col] = '状態'
             # 出品日時関連
-            elif any(keyword in col_str for keyword in ['出品日', 'date']):
+            elif any(keyword in col_str for keyword in ['出品日', 'date', 'time', '日時']):
                 normalized_columns[col] = '出品日時'
             # URL関連
-            elif 'url' in col_str:
+            elif any(keyword in col_str for keyword in ['url', 'link', 'href']):
                 normalized_columns[col] = 'URL'
             # カテゴリー関連
-            elif any(keyword in col_str for keyword in ['カテゴリ', 'category']):
+            elif any(keyword in col_str for keyword in ['カテゴリ', 'category', 'type']):
                 normalized_columns[col] = 'カテゴリー'
         
         # カラム名を変更
         df = df.rename(columns=normalized_columns)
-        st.write("正規化後のカラム:", df.columns.tolist())
+        st.write("正規化後の列:", df.columns.tolist())
         
         # データの前処理
         if '出品日時' in df.columns:
             df['出品日時'] = pd.to_datetime(df['出品日時'], errors='coerce')
         
         if '価格' in df.columns:
-            # 価格の数値変換前に不要な文字を削除
+            # 価格データのクリーニング
             df['価格'] = df['価格'].astype(str)
-            df['価格'] = df['価格'].str.replace('$', '').str.replace(',', '').str.strip()
+            df['価格'] = df['価格'].str.extract(r'(\d+\.?\d*)', expand=False)
             df['価格'] = pd.to_numeric(df['価格'], errors='coerce')
         
         # 出品者リストの取得
         if '出品者' in df.columns:
             sellers = df['出品者'].value_counts()
+            st.write(f"検出された出品者数: {len(sellers)}")
         else:
-            # 出品者列が見つからない場合、最初の行をチェック
-            st.warning("出品者列が見つかりません。データ構造を確認します。")
+            st.warning("⚠️ 出品者列が見つかりません")
             st.write("利用可能な列:", df.columns.tolist())
             sellers = pd.Series()
         
