@@ -65,44 +65,12 @@ def load_and_analyze_data(uploaded_file):
         encoding = detect_encoding(file_content)
         st.write("検出されたエンコーディング:", encoding)
         
-        # 複数のエンコーディングを試す
-        encodings_to_try = ['utf-8-sig', 'cp932', 'shift-jis', 'utf-8', encoding]
-        df = None
-        error_messages = []
-        
-        for enc in encodings_to_try:
-            if enc is None:
-                continue
-            try:
-                uploaded_file.seek(0)
-                # 最初に数行を読んでヘッダーを確認
-                header_check = pd.read_csv(
-                    uploaded_file,
-                    encoding=enc,
-                    nrows=5,
-                    on_bad_lines='skip',
-                    dtype=str  # 全ての列を文字列として読み込む
-                )
-                
-                # ヘッダーの内容を確認
-                st.write(f"エンコーディング {enc} でのヘッダー:", header_check.columns.tolist())
-                
-                uploaded_file.seek(0)
-                # ヘッダーが正しく読み込めた場合、全データを読み込む
-                df = pd.read_csv(
-                    uploaded_file,
-                    encoding=enc,
-                    on_bad_lines='skip',
-                    dtype=str  # 全ての列を文字列として読み込む
-                )
-                st.success(f"✅ エンコーディング {enc} で読み込み成功")
-                break
-            except Exception as e:
-                error_messages.append(f"エンコーディング {enc} での読み込み失敗: {str(e)}")
-                continue
-        
-        if df is None:
-            raise Exception("\n".join(error_messages))
+        # CSVファイルを読み込む
+        df = pd.read_csv(
+            uploaded_file,
+            encoding='utf-8-sig',
+            on_bad_lines='skip'
+        )
         
         # データの基本情報を表示
         st.write("データフレームの形状:", df.shape)
@@ -117,7 +85,10 @@ def load_and_analyze_data(uploaded_file):
                 normalized_columns[col] = '商品名'
             # 価格関連
             elif any(keyword in col_str for keyword in ['価格', 'price', 'cost', '円']):
-                normalized_columns[col] = '価格'
+                if '円' in col_str:  # 日本円の価格列
+                    normalized_columns[col] = '価格_円'
+                else:  # ドルの価格列
+                    normalized_columns[col] = '価格_ドル'
             # 出品者関連
             elif any(keyword in col_str for keyword in ['出品者', 'seller', 'store', 'shop']):
                 normalized_columns[col] = '出品者'
@@ -143,33 +114,33 @@ def load_and_analyze_data(uploaded_file):
             df['出品日時'] = pd.to_datetime(df['出品日時'], errors='coerce')
         
         # 価格の処理
-        if '価格' in df.columns:
-            # 複数の価格列がある場合は最初の列を使用
-            price_columns = [col for col in df.columns if col == '価格']
-            if len(price_columns) > 1:
-                # 最初の価格列を保持し、他の価格列の名前を変更
-                for i, col in enumerate(price_columns[1:], 1):
-                    df = df.rename(columns={col: f'価格_{i}'})
+        try:
+            # ドル価格の処理
+            if '価格_ドル' in df.columns:
+                df['価格_ドル'] = df['価格_ドル'].astype(str).str.replace(r'[^\d.]', '', regex=True)
+                df['価格_ドル'] = pd.to_numeric(df['価格_ドル'], errors='coerce')
             
-            # 価格データのクリーニング
-            try:
-                # 文字列に変換
-                df['価格'] = df['価格'].fillna('').astype(str)
-                # 数値以外の文字を削除
-                df['価格'] = df['価格'].str.replace(r'[^\d.]', '', regex=True)
-                # 空文字列を NaN に変換
-                df['価格'] = df['価格'].replace('', pd.NA)
-                # 数値に変換
-                df['価格'] = pd.to_numeric(df['価格'], errors='coerce')
-                
-                # デバッグ情報
-                st.write("価格データの型:", df['価格'].dtype)
-                st.write("価格データの例:", df['価格'].head())
-                st.write("欠損値の数:", df['価格'].isna().sum())
-                
-            except Exception as e:
-                st.warning(f"価格の変換中にエラーが発生しました: {str(e)}")
-                st.write("価格データの例:", df['価格'].head())
+            # 円価格の処理
+            if '価格_円' in df.columns:
+                df['価格_円'] = df['価格_円'].astype(str).str.replace(r'[^\d.]', '', regex=True)
+                df['価格_円'] = pd.to_numeric(df['価格_円'], errors='coerce')
+            
+            # メイン価格列として円価格を使用
+            if '価格_円' in df.columns:
+                df['価格'] = df['価格_円']
+            elif '価格_ドル' in df.columns:
+                df['価格'] = df['価格_ドル'] * 150  # 概算のレート
+            
+            st.write("価格データの例:")
+            if '価格_ドル' in df.columns:
+                st.write("ドル価格の例:", df['価格_ドル'].head())
+            if '価格_円' in df.columns:
+                st.write("円価格の例:", df['価格_円'].head())
+            st.write("変換後の価格の例:", df['価格'].head())
+            
+        except Exception as e:
+            st.warning(f"価格の変換中にエラーが発生しました: {str(e)}")
+            st.write("価格データの例:", df.filter(like='価格').head())
         
         # 出品者リストの取得
         if '出品者' in df.columns:
