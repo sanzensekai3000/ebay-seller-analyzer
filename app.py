@@ -56,24 +56,28 @@ def load_and_analyze_data(uploaded_file):
     try:
         # CSVファイルの読み込み（エンコーディングを自動検出）
         try:
-            # まずUTF-8で試す
-            df = pd.read_csv(uploaded_file, encoding='utf-8')
+            # まずCP932（Windows-31J）で試す
+            df = pd.read_csv(uploaded_file, encoding='cp932')
         except:
             try:
-                # UTF-8で失敗したらShift-JISで試す
+                # CP932で失敗したらShift-JISで試す
                 uploaded_file.seek(0)
                 df = pd.read_csv(uploaded_file, encoding='shift-jis')
             except:
-                # Shift-JISでも失敗したらCP932で試す
+                # Shift-JISでも失敗したらUTF-8で試す
                 uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, encoding='cp932')
+                df = pd.read_csv(uploaded_file, encoding='utf-8')
         
         # カラム名の文字化けを修正
         column_mapping = {
-            '啁E吁E価格': '商品名',
-            '価格EEEE送料': '価格',
-            '状慁E場所': '状態',
-            '出品老EショチEE吁E出品日晁E': '出品日時'
+            'i': '商品名',
+            'i': '価格',
+            'ii~j': '価格（円）',
+            '': '状態',
+            '': '所在国',
+            'oi': '出品者',
+            'Vbv': 'フィードバック',
+            'oi': '出品日時'
         }
         
         df = df.rename(columns=column_mapping)
@@ -161,11 +165,11 @@ def get_excel_download_link(df, filename="data.xlsx"):
 
 def get_csv_download_link(df, filename="data.csv"):
     """CSVファイルのダウンロードリンクを生成"""
-    # Shift-JISでCSVを出力
-    csv = df.to_csv(index=False, encoding='shift-jis')
-    csv_bytes = csv.encode('shift-jis')
+    # CP932（Windows-31J）でCSVを出力
+    csv = df.to_csv(index=False, encoding='cp932')
+    csv_bytes = csv.encode('cp932')
     b64 = base64.b64encode(csv_bytes).decode()
-    mime_type = "text/csv;charset=shift-jis"
+    mime_type = "text/csv;charset=cp932"
     return f'<a href="data:{mime_type};base64,{b64}" download="{filename}">CSVファイルをダウンロード</a>'
 
 def get_json_download_link(data, filename="data.json"):
@@ -181,7 +185,7 @@ def main():
     if not check_password():
         st.stop()  # 認証に失敗した場合は処理を停止
     
-    st.title("eBay出品者分析 📊")
+    st.title("eBay出品者分析 ��")
     
     # ファイルアップロード
     uploaded_file = st.file_uploader(
@@ -222,7 +226,7 @@ def main():
                 seller_df, stats, category_counts, price_dist = analyze_seller(df, selected_seller)
                 
                 # タブで結果を表示
-                tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 基本情報", "💰 価格分析", "📦 商品リスト", "💾 データ保存", "🔄 Amazon連携"])
+                tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 基本情報", "�� 価格分析", "📦 商品リスト", "💾 データ保存", "🔄 Amazon連携"])
                 
                 with tab1:
                     # 基本情報の表示
@@ -316,10 +320,10 @@ def main():
                         )
                         
                         # CSVファイルのダウンロード
-                        csv = seller_df.to_csv(index=False, encoding='shift-jis')
+                        csv = seller_df.to_csv(index=False, encoding='cp932')
                         st.download_button(
                             label="CSVファイルをダウンロード",
-                            data=csv.encode('shift-jis'),
+                            data=csv.encode('cp932'),
                             file_name=f"{selected_seller}_products.csv",
                             mime="text/csv"
                         )
@@ -403,10 +407,10 @@ def main():
                             amazon_research_df.columns = amazon_columns
                             
                             # 直接ダウンロードできるボタンを追加
-                            csv = amazon_research_df.to_csv(index=False, encoding='shift-jis')
+                            csv = amazon_research_df.to_csv(index=False, encoding='cp932')
                             st.download_button(
                                 label="Amazon研究用CSVをダウンロード",
-                                data=csv.encode('shift-jis'),
+                                data=csv.encode('cp932'),
                                 file_name=f"{selected_seller}_for_amazon_research.csv",
                                 mime="text/csv"
                             )
