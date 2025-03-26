@@ -54,8 +54,6 @@ def detect_encoding(file_content):
     result = chardet.detect(file_content)
     return result['encoding']
 
-# 元のコードの48行目あたりから159行目あたりまでを以下のコードに置き換えてください
-
 def load_and_analyze_data(uploaded_file):
     """アップロードされたCSVファイルを分析"""
     try:
@@ -137,6 +135,39 @@ def load_and_analyze_data(uploaded_file):
         st.write("検出されたエンコーディング:", encoding)
         return None, None
 
+def analyze_seller(df, seller_name):
+    """出品者の詳細分析"""
+    seller_df = df[df['出品者'] == seller_name].copy()
+    
+    # 基本統計
+    stats = {
+        '総出品数': len(seller_df),
+        '平均価格': seller_df['価格'].mean(),
+        '最安値': seller_df['価格'].min(),
+        '最高値': seller_df['価格'].max()
+    }
+    
+    # カテゴリー分析
+    category_column = None
+    for col in ['カテゴリー', 'カテゴリ', 'Category', '状態']:
+        if col in seller_df.columns:
+            category_column = col
+            break
+    
+    if category_column and not seller_df[category_column].isna().all():
+        category_counts = seller_df[category_column].value_counts()
+    else:
+        category_counts = pd.Series({'その他': len(seller_df)})
+    
+    # 価格帯分析
+    price_ranges = [0, 10, 20, 30, 40, 50, 75, 100, float('inf')]
+    price_labels = ['$0-10', '$10-20', '$20-30', '$30-40', '$40-50', '$50-75', '$75-100', '$100+']
+    
+    price_distribution = pd.cut(seller_df['価格'], 
+                              bins=price_ranges,
+                              labels=price_labels)
+    
+    return seller_df, stats, category_counts, price_distribution
 def prepare_download_data(df):
     """ダウンロード用にデータを準備"""
     # 日本語を含むデータを適切に処理
