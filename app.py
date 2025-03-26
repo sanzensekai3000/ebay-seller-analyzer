@@ -315,52 +315,66 @@ def main():
                     else:
                         st.write("表示できる列がありません")
                 
-                with tabs[3]:
-                    st.subheader("分析結果をダウンロード")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.write("### 商品データ")
-                        
-                        # Excelファイルの準備
-                        excel_buffer = io.BytesIO()
-                        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                            prepare_download_data(seller_df).to_excel(writer, index=False)
-                        
-                        st.download_button(
-                            label="Excelファイルをダウンロード",
-                            data=excel_buffer.getvalue(),
-                            file_name=f"{selected_seller}_products.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-                        
-                        # CSVファイルの準備
-                        csv_data = prepare_download_data(seller_df).to_csv(index=False).encode('utf-8-sig')
-                        st.download_button(
-                            label="CSVファイルをダウンロード",
-                            data=csv_data,
-                            file_name=f"{selected_seller}_products.csv",
-                            mime="text/csv"
-                        )
-                    
-                    with col2:
-                        st.write("### 分析データ")
-                        
-                        analysis_results = {
-                            'basic_stats': stats,
-                            'category_analysis': {str(k): float(v) for k, v in category_counts.items()},
-                            'price_distribution': {str(k): int(v) for k, v in price_dist.value_counts().items()},
-                            'timestamp': datetime.now().isoformat()
-                        }
-                        
-                        json_str = json.dumps(analysis_results, ensure_ascii=False, indent=2)
-                        st.download_button(
-                            label="JSON分析結果をダウンロード",
-                            data=json_str.encode('utf-8'),
-                            file_name=f"{selected_seller}_analysis.json",
-                            mime="application/json"
-                        )
+               with tabs[3]:
+    st.subheader("分析結果をダウンロード")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("### 商品データ")
+        
+        # Excelファイルの準備
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            prepare_download_data(seller_df).to_excel(writer, index=False)
+        
+        st.download_button(
+            label="Excelファイルをダウンロード",
+            data=excel_buffer.getvalue(),
+            file_name=f"{selected_seller}_products.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
+        # CSVファイルの準備
+        csv_data = prepare_download_data(seller_df).to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="CSVファイルをダウンロード",
+            data=csv_data,
+            file_name=f"{selected_seller}_products.csv",
+            mime="text/csv"
+        )
+    
+    with col2:
+        st.write("### 分析データ")
+        
+        # 数値型を通常のPythonの型に変換
+        analysis_results = {
+            'basic_stats': {
+                k: float(v) if isinstance(v, (int, float)) else str(v)
+                for k, v in stats.items()
+            },
+            'category_analysis': {
+                str(k): float(v) 
+                for k, v in category_counts.items()
+            },
+            'price_distribution': {
+                str(k): int(v) 
+                for k, v in price_dist.value_counts().items()
+            },
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        try:
+            json_str = json.dumps(analysis_results, ensure_ascii=False, indent=2)
+            st.download_button(
+                label="JSON分析結果をダウンロード",
+                data=json_str.encode('utf-8'),
+                file_name=f"{selected_seller}_analysis.json",
+                mime="application/json"
+            )
+        except Exception as e:
+            st.error(f"JSONの生成中にエラーが発生しました: {str(e)}")
+            st.write("デバッグ情報:", analysis_results)
                 
                 with tabs[4]:
                     st.subheader("Amazon研究との連携")
