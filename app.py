@@ -75,30 +75,103 @@ def load_and_analyze_data(uploaded_file):
                 continue
             try:
                 uploaded_file.seek(0)
-                # 最初に数行を読んでヘッダーを確認
-                header_check = pd.read_csv(
-                    uploaded_file,
-                    encoding=enc,
-                    nrows=5,
-                    on_bad_lines='skip'
-                )
-                
-                # ヘッダーの内容を確認
-                st.write(f"エンコーディング {enc} でのヘッダー:", header_check.columns.tolist())
-                
-                uploaded_file.seek(0)
-                # ヘッダーが正しく読み込めた場合、全データを読み込む
                 df = pd.read_csv(
                     uploaded_file,
                     encoding=enc,
-                    on_bad_lines='skip',
-                    dtype=str  # 全ての列を一旦文字列として読み込む
+                    on_bad_lines='skip'
                 )
                 st.success(f"✅ エンコーディング {enc} で読み込み成功")
                 break
             except Exception as e:
                 error_messages.append(f"エンコーディング {enc} での読み込み失敗: {str(e)}")
                 continue
+        
+        if df is None:
+            raise Exception("\n".join(error_messages))
+        
+        # データの基本情報を表示
+        st.write("データフレームの形状:", df.shape)
+        st.write("読み込んだ列:", df.columns.tolist())
+        
+        # カラム名の正規化
+        normalized_columns = {}
+        for col in df.columns:
+            col_str = str(col).lower()
+            # 商品名関連
+            if any(keyword in col_str for keyword in ['商品', 'product', 'item', 'title', 'name']):
+                normalized_columns[col] = '商品名'
+            # 価格関連
+            elif any(keyword in col_str for keyword in ['価格', 'price', 'cost', '円']):
+                normalized_columns[col] = '価格'
+            # 出品者関連
+            elif any(keyword in col_str for keyword in ['出品者', 'seller', 'store', 'shop']):
+                normalized_columns[col] = '出品者'
+            # 状態関連
+            elif any(keyword in col_str for keyword in ['状態', 'condition', 'status', 'state']):
+                normalized_columns[col] = '状態'
+            # 出品日時関連
+            elif any(keyword in col_str for keyword in ['出品日', 'date', 'time', '日時', '登録']):
+                normalized_columns[col] = '出品日時'
+            # URL関連
+            elif any(keyword in col_str for keyword in ['url', 'link', 'href']):
+                normalized_columns[col] = 'URL'
+            # カテゴリー関連
+            elif any(keyword in col_str for keyword in ['カテゴリ', 'category', 'type', '分類']):
+                normalized_columns[col] = 'カテゴリー'
+        
+        # カラム名を変更
+        df = df.rename(columns=normalized_columns)
+        st.write("正規化後の列:", df.columns.tolist())
+        
+        # データの前処理
+        if '出品日時' in df.columns:
+            df['出品日時'] = pd.to_datetime(df['出品日時'], errors='coerce')
+        
+        # 価格の処理
+        if '価格' in df.columns:
+            # 複数の価格列がある場合は最初の列を使用
+            price_columns = [col for col in df.columns if col == '価格']
+            if len(price_columns) > 1:
+                # 最初の価格列を保持し、他の価格列の名前を変更
+                for i, col in enumerate(price_columns[1:], 1):
+                    df = df.rename(columns={col: f'価格_{i}'})
+            
+            # 価格データのクリーニング
+            try:
+                # 文字列に変換
+                df['価格'] = df['価格'].astype(str)
+                # 数値以外の文字を削除
+                df['価格'] = df['価格'].str.replace(r'[^\d.]', '', regex=True)
+                # 空文字列を NaN に変換
+                df['価格'] = df['価格'].replace('', pd.NA)
+                # 数値に変換
+                df['価格'] = pd.to_numeric(df['価格'], errors='coerce')
+            except Exception as e:
+                st.warning(f"価格の変換中にエラーが発生しました: {str(e)}")
+                st.write("価格データの例:", df['価格'].head())
+        
+        # 出品者リストの取得
+        if '出品者' in df.columns:
+            sellers = df['出品者'].value_counts()
+            st.write(f"検出された出品者数: {len(sellers)}")
+        else:
+            st.warning("⚠️ 出品者列が見つかりません")
+            st.write("利用可能な列:", df.columns.tolist())
+            sellers = pd.Series()
+        
+        # 欠損値の確認
+        missing_data = df.isnull().sum()
+        if missing_data.any():
+            st.write("欠損値の状況:", missing_data[missing_data > 0])
+        
+        return df, sellers
+    
+    except Exception as e:
+        st.error(f"ファイルの読み込みに失敗しました: {str(e)}")
+        st.write("デバッグ情報:")
+        st.write("ファイルサイズ:", len(file_content), "bytes")
+        st.write("検出されたエンコーディング:", encoding)
+        return None, None
 
 def analyze_seller(df, seller_name):
     """出品者の詳細分析"""
