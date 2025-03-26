@@ -54,16 +54,29 @@ st.set_page_config(
 def load_and_analyze_data(uploaded_file):
     """アップロードされたCSVファイルを分析"""
     try:
-        # CSVファイルの読み込み
+        # CSVファイルの読み込み（エンコーディングを自動検出）
         try:
-            # ヘッダーありの場合
-            df = pd.read_csv(uploaded_file, encoding='utf-8-sig')
+            # まずUTF-8で試す
+            df = pd.read_csv(uploaded_file, encoding='utf-8')
         except:
-            # ヘッダーなしの場合、ファイルを巻き戻してから再読み込み
-            uploaded_file.seek(0)
-            # 典型的なカラム名を定義
-            columns = ['商品名', '価格', '価格（円）', '配送情報', '状態', '所在国', '出品者', '追加情報', '出品日時']
-            df = pd.read_csv(uploaded_file, encoding='utf-8-sig', header=None, names=columns)
+            try:
+                # UTF-8で失敗したらShift-JISで試す
+                uploaded_file.seek(0)
+                df = pd.read_csv(uploaded_file, encoding='shift-jis')
+            except:
+                # Shift-JISでも失敗したらCP932で試す
+                uploaded_file.seek(0)
+                df = pd.read_csv(uploaded_file, encoding='cp932')
+        
+        # カラム名の文字化けを修正
+        column_mapping = {
+            '啁E吁E価格': '商品名',
+            '価格EEEE送料': '価格',
+            '状慁E場所': '状態',
+            '出品老EショチEE吁E出品日晁E': '出品日時'
+        }
+        
+        df = df.rename(columns=column_mapping)
         
         # データの前処理
         if '出品日時' in df.columns:
@@ -148,11 +161,11 @@ def get_excel_download_link(df, filename="data.xlsx"):
 
 def get_csv_download_link(df, filename="data.csv"):
     """CSVファイルのダウンロードリンクを生成"""
-    # BOMなしのUTF-8でCSVを出力
-    csv = df.to_csv(index=False, encoding='utf-8')
-    csv_bytes = csv.encode('utf-8')
+    # Shift-JISでCSVを出力
+    csv = df.to_csv(index=False, encoding='shift-jis')
+    csv_bytes = csv.encode('shift-jis')
     b64 = base64.b64encode(csv_bytes).decode()
-    mime_type = "text/csv;charset=utf-8"
+    mime_type = "text/csv;charset=shift-jis"
     return f'<a href="data:{mime_type};base64,{b64}" download="{filename}">CSVファイルをダウンロード</a>'
 
 def get_json_download_link(data, filename="data.json"):
@@ -303,10 +316,10 @@ def main():
                         )
                         
                         # CSVファイルのダウンロード
-                        csv = seller_df.to_csv(index=False, encoding='utf-8')
+                        csv = seller_df.to_csv(index=False, encoding='shift-jis')
                         st.download_button(
                             label="CSVファイルをダウンロード",
-                            data=csv.encode('utf-8'),
+                            data=csv.encode('shift-jis'),
                             file_name=f"{selected_seller}_products.csv",
                             mime="text/csv"
                         )
@@ -390,10 +403,10 @@ def main():
                             amazon_research_df.columns = amazon_columns
                             
                             # 直接ダウンロードできるボタンを追加
-                            csv = amazon_research_df.to_csv(index=False, encoding='utf-8')
+                            csv = amazon_research_df.to_csv(index=False, encoding='shift-jis')
                             st.download_button(
                                 label="Amazon研究用CSVをダウンロード",
-                                data=csv.encode('utf-8'),
+                                data=csv.encode('shift-jis'),
                                 file_name=f"{selected_seller}_for_amazon_research.csv",
                                 mime="text/csv"
                             )
