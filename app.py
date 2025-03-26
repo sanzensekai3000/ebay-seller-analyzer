@@ -12,25 +12,23 @@ import os
 import base64
 import io
 import hmac
+import chardet
 
 # セキュリティ機能
 def check_password():
     """パスワード認証を行う"""
-    # 直接ハードコードされたパスワード
     users = {
-        "admin": "ebay2024",  # 管理者用
-        "user1": "password1",  # 追加ユーザー
-        "ebay2024": "password1"  # 追加の組み合わせ
+        "admin": "ebay2024",
+        "user1": "password1",
+        "ebay2024": "password1"
     }
     
-    # セッション状態を確認
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
     
     if st.session_state.authenticated:
         return True
     
-    # サイドバーでユーザー名とパスワードを入力
     st.sidebar.title("ログイン")
     username = st.sidebar.text_input("ユーザー名")
     password = st.sidebar.text_input("パスワード", type="password")
@@ -44,75 +42,74 @@ def check_password():
             return False
     return False
 
-# Streamlit設定（シンプルな設定）
+# Streamlit設定
 st.set_page_config(
     page_title="eBay出品者分析",
     page_icon="📊",
     layout="wide"
 )
 
+def detect_encoding(file_content):
+    """ファイルのエンコーディングを検出"""
+    result = chardet.detect(file_content)
+    return result['encoding']
+
 def load_and_analyze_data(uploaded_file):
     """アップロードされたCSVファイルを分析"""
     try:
-        # CSVファイルの読み込み（エンコーディングを自動検出）
-        try:
-            # まずCP932（Windows-31J）で試す
-            df = pd.read_csv(uploaded_file, encoding='cp932')
-        except:
-            try:
-                # CP932で失敗したらShift-JISで試す
-                uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, encoding='shift-jis')
-            except:
-                # Shift-JISでも失敗したらUTF-8で試す
-                uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, encoding='utf-8')
+        # ファイルの内容を読み込む
+        file_content = uploaded_file.read()
+        uploaded_file.seek(0)
         
-        # カラム名の文字化けを修正
-        column_mapping = {
-            'i': '商品名',
-            'i': '価格',
-            'ii~j': '価格（円）',
-            '': '状態',
-            '': '所在国',
-            'oi': '出品者',
-            'Vbv': 'フィードバック',
-            'oi': '出品日時'
-        }
+        # エンコーディングを自動検出
+        encoding = detect_encoding(file_content)
         
-        df = df.rename(columns=column_mapping)
+        # 検出したエンコーディングでCSVを読み込む
+        df = pd.read_csv(uploaded_file, encoding=encoding)
+        
+        # カラム名の正規化
+        normalized_columns = {}
+        for col in df.columns:
+            # 商品名関連
+            if any(keyword in col.lower() for keyword in ['商品', 'product', 'item']):
+                normalized_columns[col] = '商品名'
+            # 価格関連
+            elif any(keyword in col.lower() for keyword in ['価格', 'price']):
+                normalized_columns[col] = '価格'
+            # 出品者関連
+            elif any(keyword in col.lower() for keyword in ['出品者', 'seller']):
+                normalized_columns[col] = '出品者'
+            # 状態関連
+            elif any(keyword in col.lower() for keyword in ['状態', 'condition']):
+                normalized_columns[col] = '状態'
+            # 出品日時関連
+            elif any(keyword in col.lower() for keyword in ['出品日', 'date']):
+                normalized_columns[col] = '出品日時'
+            # URL関連
+            elif 'url' in col.lower():
+                normalized_columns[col] = 'URL'
+            # カテゴリー関連
+            elif any(keyword in col.lower() for keyword in ['カテゴリ', 'category']):
+                normalized_columns[col] = 'カテゴリー'
+        
+        # カラム名を変更
+        df = df.rename(columns=normalized_columns)
         
         # データの前処理
         if '出品日時' in df.columns:
             df['出品日時'] = pd.to_datetime(df['出品日時'], errors='coerce')
         
-        # 価格が複数列ある場合の対応
         if '価格' in df.columns:
             df['価格'] = pd.to_numeric(df['価格'], errors='coerce')
-        elif '価格（円）' in df.columns:
-            df['価格'] = pd.to_numeric(df['価格（円）'], errors='coerce')
-        
-        # 出品者情報の確認
-        if '出品者' not in df.columns:
-            st.warning("「出品者」列が見つかりません。データ形式を確認してください。")
-            possible_seller_columns = []
-            for col in df.columns:
-                if any(keyword in col.lower() for keyword in ['seller', '出品者', 'セラー']):
-                    possible_seller_columns.append(col)
-            
-            if possible_seller_columns:
-                seller_col = st.selectbox("出品者情報の列を選択してください:", possible_seller_columns)
-                df['出品者'] = df[seller_col]
         
         # 出品者リストの取得
-        sellers = df['出品者'].value_counts()
+        sellers = df['出品者'].value_counts() if '出品者' in df.columns else pd.Series()
         
         return df, sellers
     
     except Exception as e:
         st.error(f"ファイルの読み込みに失敗しました: {str(e)}")
         return None, None
-
 def analyze_seller(df, seller_name):
     """出品者の詳細分析"""
     seller_df = df[df['出品者'] == seller_name].copy()
@@ -122,25 +119,19 @@ def analyze_seller(df, seller_name):
         '総出品数': len(seller_df),
         '平均価格': seller_df['価格'].mean(),
         '最安値': seller_df['価格'].min(),
-        '最高値': seller_df['価格'].max(),
-        'フィードバック': seller_df['フィードバック'].iloc[0] if 'フィードバック' in seller_df.columns else 'N/A'
+        '最高値': seller_df['価格'].max()
     }
     
-    # カテゴリー分析（CSVファイルの列名に合わせて調整）
+    # カテゴリー分析
     category_column = None
-    if 'カテゴリー' in seller_df.columns:
-        category_column = 'カテゴリー'
-    elif 'カテゴリ' in seller_df.columns:
-        category_column = 'カテゴリ'
-    elif 'Category' in seller_df.columns:
-        category_column = 'Category'
-    elif '状態' in seller_df.columns:  # 状態情報をカテゴリとして使用
-        category_column = '状態'
+    for col in ['カテゴリー', 'カテゴリ', 'Category', '状態']:
+        if col in seller_df.columns:
+            category_column = col
+            break
     
     if category_column and not seller_df[category_column].isna().all():
         category_counts = seller_df[category_column].value_counts()
     else:
-        # カテゴリー列がない場合はダミーデータを作成
         category_counts = pd.Series({'その他': len(seller_df)})
     
     # 価格帯分析
@@ -153,41 +144,21 @@ def analyze_seller(df, seller_name):
     
     return seller_df, stats, category_counts, price_distribution
 
-def get_excel_download_link(df, filename="data.xlsx"):
-    """エクセルファイルのダウンロードリンクを生成"""
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
-    
-    excel_data = output.getvalue()
-    b64 = base64.b64encode(excel_data).decode()
-    return f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64}" download="{filename}">Excelファイルをダウンロード</a>'
-
-def get_csv_download_link(df, filename="data.csv"):
-    """CSVファイルのダウンロードリンクを生成"""
-    # CP932（Windows-31J）でCSVを出力
-    csv = df.to_csv(index=False, encoding='cp932')
-    csv_bytes = csv.encode('cp932')
-    b64 = base64.b64encode(csv_bytes).decode()
-    mime_type = "text/csv;charset=cp932"
-    return f'<a href="data:{mime_type};base64,{b64}" download="{filename}">CSVファイルをダウンロード</a>'
-
-def get_json_download_link(data, filename="data.json"):
-    """JSONファイルのダウンロードリンクを生成"""
-    json_str = json.dumps(data, ensure_ascii=False, indent=2)
-    json_bytes = json_str.encode('utf-8')
-    b64 = base64.b64encode(json_bytes).decode()
-    return f'<a href="data:application/json;base64,{b64}" download="{filename}">JSON分析結果をダウンロード</a>'
+def prepare_download_data(df):
+    """ダウンロード用にデータを準備"""
+    # 日本語を含むデータを適切に処理
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col] = df[col].astype(str)
+    return df
 
 def main():
     """メインアプリケーション"""
-    # 認証チェック
     if not check_password():
-        st.stop()  # 認証に失敗した場合は処理を停止
+        st.stop()
     
-    st.title("eBay出品者分析 ��")
+    st.title("eBay出品者分析 📊")
     
-    # ファイルアップロード
     uploaded_file = st.file_uploader(
         "CSVファイルをアップロード",
         type=['csv'],
@@ -195,20 +166,16 @@ def main():
     )
     
     if uploaded_file:
-        # データの読み込みと分析
         df, sellers = load_and_analyze_data(uploaded_file)
         
         if df is not None:
             st.success(f"✅ {len(df)}件のデータを読み込みました")
             
-            # データプレビュー
             with st.expander("データプレビュー（最初の5行）"):
                 st.dataframe(df.head())
             
-            # サイドバーに出品者選択を表示
             st.sidebar.header("出品者を選択")
             
-            # 出品者情報の表示
             seller_info = pd.DataFrame({
                 '出品数': sellers,
                 '平均価格': [df[df['出品者'] == seller]['価格'].mean() for seller in sellers.index]
@@ -222,14 +189,11 @@ def main():
             )
             
             if selected_seller:
-                # 選択された出品者の分析
                 seller_df, stats, category_counts, price_dist = analyze_seller(df, selected_seller)
                 
-                # タブで結果を表示
-                tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 基本情報", "�� 価格分析", "📦 商品リスト", "💾 データ保存", "🔄 Amazon連携"])
+                tabs = st.tabs(["📊 基本情報", "💰 価格分析", "📦 商品リスト", "💾 データ保存", "🔄 Amazon連携"])
                 
-                with tab1:
-                    # 基本情報の表示
+                with tabs[0]:
                     col1, col2 = st.columns(2)
                     with col1:
                         for key, value in stats.items():
@@ -239,7 +203,6 @@ def main():
                                 st.metric(key, value)
                     
                     with col2:
-                        # カテゴリー分布のグラフ
                         fig = px.pie(
                             values=category_counts.values,
                             names=category_counts.index,
@@ -247,12 +210,10 @@ def main():
                         )
                         st.plotly_chart(fig)
                 
-                with tab2:
-                    # 価格分析
+                with tabs[1]:
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        # 価格分布のヒストグラム
                         fig = px.histogram(
                             seller_df,
                             x='価格',
@@ -262,12 +223,10 @@ def main():
                         st.plotly_chart(fig)
                     
                     with col2:
-                        # 価格帯別商品数
                         price_analysis = price_dist.value_counts().sort_index()
                         st.write("価格帯別商品数")
                         st.dataframe(price_analysis)
                         
-                        # 箱ひげ図による価格の分布
                         fig = px.box(
                             seller_df,
                             y='価格',
@@ -275,15 +234,11 @@ def main():
                         )
                         st.plotly_chart(fig)
                 
-                with tab3:
-                    # 商品リスト（表示する列を動的に判断）
-                    display_columns = []
-                    for col in ['商品名', '価格', '価格（円）', 'カテゴリー', 'カテゴリ', 'Category', '状態', 'URL', '出品日時', '配送情報', '所在国']:
-                        if col in seller_df.columns:
-                            display_columns.append(col)
+                with tabs[2]:
+                    display_columns = [col for col in ['商品名', '価格', 'カテゴリー', '状態', 'URL', '出品日時']
+                                     if col in seller_df.columns]
                     
                     if display_columns:
-                        # 検索フィルター
                         search_term = st.text_input("商品名で検索:")
                         
                         filtered_df = seller_df
@@ -294,43 +249,42 @@ def main():
                             filtered_df[display_columns].sort_values('価格', ascending=False)
                         )
                         
-                        # 件数表示
                         st.info(f"表示中: {len(filtered_df)} / {len(seller_df)} 件")
                     else:
                         st.write("表示できる列がありません")
                 
-                with tab4:
-                    # データの保存（クラウド対応版）
+                with tabs[3]:
                     st.subheader("分析結果をダウンロード")
                     
                     col1, col2 = st.columns(2)
                     
                     with col1:
                         st.write("### 商品データ")
-                        # Excelファイルのダウンロード
-                        buffer = io.BytesIO()
-                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                            seller_df.to_excel(writer, index=False)
+                        
+                        # Excelファイルの準備
+                        excel_buffer = io.BytesIO()
+                        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                            prepare_download_data(seller_df).to_excel(writer, index=False)
                         
                         st.download_button(
                             label="Excelファイルをダウンロード",
-                            data=buffer.getvalue(),
+                            data=excel_buffer.getvalue(),
                             file_name=f"{selected_seller}_products.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                         
-                        # CSVファイルのダウンロード
-                        csv = seller_df.to_csv(index=False, encoding='cp932')
+                        # CSVファイルの準備
+                        csv_data = prepare_download_data(seller_df).to_csv(index=False).encode('utf-8-sig')
                         st.download_button(
                             label="CSVファイルをダウンロード",
-                            data=csv.encode('cp932'),
+                            data=csv_data,
                             file_name=f"{selected_seller}_products.csv",
                             mime="text/csv"
                         )
                     
                     with col2:
                         st.write("### 分析データ")
-                        # 分析結果のJSONダウンロード
+                        
                         analysis_results = {
                             'basic_stats': stats,
                             'category_analysis': {str(k): float(v) for k, v in category_counts.items()},
@@ -346,8 +300,7 @@ def main():
                             mime="application/json"
                         )
                 
-                with tab5:
-                    # Amazon連携機能
+                with tabs[4]:
                     st.subheader("Amazon研究との連携")
                     
                     st.write("""
@@ -355,71 +308,38 @@ def main():
                     商品リストをダウンロードして、4_amazon_researchアプリケーションにインポートしてください。
                     """)
                     
-                    # カスタムCSV形式のダウンロード（Amazon研究用）
                     if '商品名' in seller_df.columns and '価格' in seller_df.columns:
-                        # Amazon研究用にデータを整形
                         amazon_df = seller_df.copy()
                         
-                        # 必要な列を選択・名前変更
-                        columns_to_select = []
-                        amazon_columns = []
+                        columns_mapping = {
+                            '商品名': 'product_name',
+                            '価格': 'ebay_price',
+                            'カテゴリー': 'category',
+                            'URL': 'ebay_url',
+                            '出品日時': 'listing_date',
+                            '状態': 'condition'
+                        }
                         
-                        # 商品名
-                        if '商品名' in amazon_df.columns:
-                            columns_to_select.append('商品名')
-                            amazon_columns.append('product_name')
+                        # 存在する列のみを選択
+                        columns_to_select = [col for col in columns_mapping.keys() if col in amazon_df.columns]
+                        amazon_columns = [columns_mapping[col] for col in columns_to_select]
                         
-                        # 価格
-                        if '価格' in amazon_df.columns:
-                            columns_to_select.append('価格')
-                            amazon_columns.append('ebay_price')
-                        
-                        # カテゴリー
-                        category_col = None
-                        if 'カテゴリー' in amazon_df.columns:
-                            category_col = 'カテゴリー'
-                        elif 'カテゴリ' in amazon_df.columns:
-                            category_col = 'カテゴリ'
-                        elif 'Category' in amazon_df.columns:
-                            category_col = 'Category'
-                            
-                        if category_col:
-                            columns_to_select.append(category_col)
-                            amazon_columns.append('category')
-                        
-                        # URL
-                        if 'URL' in amazon_df.columns:
-                            columns_to_select.append('URL')
-                            amazon_columns.append('ebay_url')
-                        
-                        # その他の有用な情報
-                        if '出品日時' in amazon_df.columns:
-                            columns_to_select.append('出品日時')
-                            amazon_columns.append('listing_date')
-                        
-                        if '状態' in amazon_df.columns:
-                            columns_to_select.append('状態')
-                            amazon_columns.append('condition')
-                        
-                        # 選択した列だけを抽出
                         if columns_to_select:
                             amazon_research_df = amazon_df[columns_to_select].copy()
                             amazon_research_df.columns = amazon_columns
                             
-                            # 直接ダウンロードできるボタンを追加
-                            csv = amazon_research_df.to_csv(index=False, encoding='cp932')
+                            # CSVファイルの準備（UTF-8 with BOM）
+                            csv_data = amazon_research_df.to_csv(index=False).encode('utf-8-sig')
                             st.download_button(
                                 label="Amazon研究用CSVをダウンロード",
-                                data=csv.encode('cp932'),
+                                data=csv_data,
                                 file_name=f"{selected_seller}_for_amazon_research.csv",
                                 mime="text/csv"
                             )
                             
-                            # データプレビュー
                             st.write("データプレビュー:")
                             st.dataframe(amazon_research_df.head())
                             
-                            # 使い方の説明
                             st.info("""
                             **使用方法**:
                             1. 上記のボタンでCSVファイルをダウンロードします
