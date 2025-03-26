@@ -113,8 +113,8 @@ def load_and_analyze_data(uploaded_file):
         
         if '価格' in df.columns:
             # 価格の数値変換前に不要な文字を削除
-            if df['価格'].dtype == 'object':
-                df['価格'] = df['価格'].str.replace('$', '').str.replace(',', '')
+            if isinstance(df['価格'].dtype, object):  # 修正箇所
+                df['価格'] = df['価格'].astype(str).str.replace('$', '').str.replace(',', '')
             df['価格'] = pd.to_numeric(df['価格'], errors='coerce')
         
         # 出品者リストの取得
@@ -125,6 +125,11 @@ def load_and_analyze_data(uploaded_file):
             st.warning("出品者列が見つかりません。データ構造を確認します。")
             st.write("利用可能な列:", df.columns.tolist())
             sellers = pd.Series()
+        
+        # デバッグ情報の表示
+        st.write("データ読み込み成功")
+        st.write("列名:", df.columns.tolist())
+        st.write("データ型:", df.dtypes)
         
         return df, sellers
     
