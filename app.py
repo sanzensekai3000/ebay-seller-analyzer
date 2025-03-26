@@ -61,10 +61,6 @@ def load_and_analyze_data(uploaded_file):
         file_content = uploaded_file.read()
         uploaded_file.seek(0)
         
-        # エンコーディングを自動検出
-        encoding = detect_encoding(file_content)
-        st.write("検出されたエンコーディング:", encoding)
-        
         # CSVファイルを読み込む
         df = pd.read_csv(
             uploaded_file,
@@ -73,8 +69,7 @@ def load_and_analyze_data(uploaded_file):
         )
         
         # データの基本情報を表示
-        st.write("データフレームの形状:", df.shape)
-        st.write("読み込んだ列:", df.columns.tolist())
+        st.success(f"✅ {len(df)}件のデータを読み込みました")
         
         # カラム名の正規化
         normalized_columns = {}
@@ -107,7 +102,6 @@ def load_and_analyze_data(uploaded_file):
         
         # カラム名を変更
         df = df.rename(columns=normalized_columns)
-        st.write("正規化後の列:", df.columns.tolist())
         
         # データの前処理
         if '出品日時' in df.columns:
@@ -131,38 +125,21 @@ def load_and_analyze_data(uploaded_file):
             elif '価格_ドル' in df.columns:
                 df['価格'] = df['価格_ドル'] * 150  # 概算のレート
             
-            st.write("価格データの例:")
-            if '価格_ドル' in df.columns:
-                st.write("ドル価格の例:", df['価格_ドル'].head())
-            if '価格_円' in df.columns:
-                st.write("円価格の例:", df['価格_円'].head())
-            st.write("変換後の価格の例:", df['価格'].head())
-            
         except Exception as e:
-            st.warning(f"価格の変換中にエラーが発生しました: {str(e)}")
-            st.write("価格データの例:", df.filter(like='価格').head())
+            st.error("価格データの処理中にエラーが発生しました。")
+            return None, None
         
         # 出品者リストの取得
         if '出品者' in df.columns:
             sellers = df['出品者'].value_counts()
-            st.write(f"検出された出品者数: {len(sellers)}")
         else:
-            st.warning("⚠️ 出品者列が見つかりません")
-            st.write("利用可能な列:", df.columns.tolist())
+            st.warning("⚠️ 出品者情報が見つかりません")
             sellers = pd.Series()
-        
-        # 欠損値の確認
-        missing_data = df.isnull().sum()
-        if missing_data.any():
-            st.write("欠損値の状況:", missing_data[missing_data > 0])
         
         return df, sellers
     
     except Exception as e:
-        st.error(f"ファイルの読み込みに失敗しました: {str(e)}")
-        st.write("デバッグ情報:")
-        st.write("ファイルサイズ:", len(file_content), "bytes")
-        st.write("検出されたエンコーディング:", encoding)
+        st.error("ファイルの読み込みに失敗しました。")
         return None, None
 
 def analyze_seller(df, seller_name):
